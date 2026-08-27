@@ -89,7 +89,6 @@ result once it is ready.
 ## Development
 
 - extension entrypoint: `extensions/btw.ts`
-- included skill: `skills/btw/SKILL.md`
 - run tests: `npm test`
 
 To use it without installing:

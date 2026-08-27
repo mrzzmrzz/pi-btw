@@ -25,7 +25,6 @@
   ],
   "files": [
     "extensions",
-    "skills",
     "README.md",
     "LICENSE"
   ],
@@ -36,9 +35,6 @@
   "pi": {
     "extensions": [
       "./extensions/btw.ts"
-    ],
-    "skills": [
-      "./skills"
     ]
   },
   "peerDependencies": {
