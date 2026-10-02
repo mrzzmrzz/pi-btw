@@ -415,6 +415,8 @@ function createHarness(
   };
   let idle = true;
   let hasCredentials = true;
+  let authApiKey: string | undefined = "test-key";
+  const hostModelRuntime = { streamSimple: vi.fn(), getModel: vi.fn() };
 
   const ui = {
     theme,
@@ -465,8 +467,9 @@ function createHarness(
     sessionManager: sessionManager as any,
     modelRegistry: {
       getApiKeyAndHeaders: vi.fn(async () =>
-        hasCredentials ? { ok: true, apiKey: "test-key", headers: undefined } : { ok: true, apiKey: undefined, headers: undefined },
+        hasCredentials ? { ok: true, apiKey: authApiKey, headers: undefined } : { ok: false, error: 'No API key found for "test"' },
       ),
+      runtime: hostModelRuntime,
     },
     get model() {
       return model;
@@ -519,8 +522,12 @@ function createHarness(
     setIdle(value: boolean) {
       idle = value;
     },
+    hostModelRuntime,
     setCredentials(value: boolean) {
       hasCredentials = value;
+    },
+    setAuthApiKey(value: string | undefined) {
+      authApiKey = value;
     },
     setModel(value: { provider: string; id: string; api: string } | null) {
       model = value;
@@ -867,7 +874,26 @@ describe("btw runtime behavior", () => {
     await harness.command("btw", "anyone there?");
 
     expect(subSessionRecords).toHaveLength(0);
-    expect(harness.notifications.at(-1)?.message).toContain("No credentials");
+    expect(harness.notifications.at(-1)?.message).toContain("No API key found");
+  });
+
+  it("runs keyless providers that resolve auth without an API key", async () => {
+    const harness = createHarness();
+    harness.setAuthApiKey(undefined);
+    await harness.runSessionStart();
+    await harness.command("btw", "local model?");
+
+    expect(subSessionRecords).toHaveLength(1);
+    expect(subSessionRecords[0].promptCalls[0].text).toBe("local model?");
+  });
+
+  it("reuses the host model runtime so extension-registered providers work in the sub-session", async () => {
+    const harness = createHarness();
+    await harness.runSessionStart();
+    await harness.command("btw", "which runtime?");
+
+    expect(subSessionRecords[0].options.modelRuntime).toBe(harness.hostModelRuntime);
+    expect(subSessionRecords[0].options).not.toHaveProperty("modelRegistry");
   });
 
   it("does not leak btw thread entries into visible messages or the main context", async () => {
