@@ -8,6 +8,7 @@ import {
   type ExtensionAPI,
   type ExtensionCommandContext,
   type ExtensionContext,
+  type ModelRuntime,
   type ResourceLoader,
 } from "@earendil-works/pi-coding-agent";
 import { type AssistantMessage, type Message } from "@earendil-works/pi-ai";
@@ -87,10 +88,23 @@ function createBtwResourceLoader(): ResourceLoader {
     getThemes: () => ({ themes: [], diagnostics: [] }),
     getAgentsFiles: () => ({ agentsFiles: [] }),
     getSystemPrompt: () => undefined,
+    getSystemPromptSource: () => undefined,
     getAppendSystemPrompt: () => [BTW_SYSTEM_PROMPT],
+    getAppendSystemPromptSources: () => [],
     extendResources: () => {},
     reload: async () => {},
   };
+}
+
+// pi does not expose the host ModelRuntime to extensions; ctx.modelRegistry is a facade over it.
+// Reusing it keeps extension-registered providers, virtual models, and --api-key overrides
+// available to the sub-session. Without it, createAgentSession() builds a fresh runtime from
+// auth.json/models.json that knows none of those.
+function getHostModelRuntime(ctx: ExtensionContext): ModelRuntime | undefined {
+  const runtime = (ctx.modelRegistry as unknown as { runtime?: Partial<ModelRuntime> }).runtime;
+  return runtime && typeof runtime.streamSimple === "function" && typeof runtime.getModel === "function"
+    ? (runtime as ModelRuntime)
+    : undefined;
 }
 
 function extractText(parts: AssistantMessage["content"], type: "text" | "thinking"): string {
@@ -629,7 +643,7 @@ export default function (pi: ExtensionAPI) {
     const { session } = await createAgentSession({
       sessionManager: SessionManager.inMemory(),
       model: ctx.model,
-      modelRegistry: ctx.modelRegistry as AgentSession["modelRegistry"],
+      modelRuntime: getHostModelRuntime(ctx),
       thinkingLevel: pi.getThinkingLevel(),
       // Match pi's default coding-agent toolset.
       tools: ["read", "bash", "edit", "write"],
@@ -828,8 +842,9 @@ export default function (pi: ExtensionAPI) {
     }
 
     const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
-    if (!auth.ok || !auth.apiKey) {
-      const message = auth.ok ? `No credentials available for ${ctx.model.provider}/${ctx.model.id}.` : auth.error;
+    // Keyless providers (llama.cpp, local models.json entries) resolve ok without an apiKey.
+    if (!auth.ok) {
+      const message = auth.error || `No credentials available for ${ctx.model.provider}/${ctx.model.id}.`;
       setOverlayStatus(message);
       notify(ctx, message, "error");
       await ensureOverlay(ctx);
